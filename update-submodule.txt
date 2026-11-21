@@ -1,0 +1,46 @@
+📋 خلاصه مراحل جایگزینی ساب‌مدل traccar-web
+همه دستورات در ریشه پروژه اصلی و در PowerShell اجرا می‌شوند.
+
+🗑️ ۱) حذف ساب‌مدل قدیمی
+git submodule deinit -f traccar-web
+git rm -f traccar-web
+Remove-Item -Recurse -Force .git\modules\traccar-web
+⚠️ در PowerShell از Remove-Item -Recurse -Force استفاده کنید، نه rm -rf.
+
+➕ ۲) افزودن مخزن جدید
+git submodule add https://github.com/mstfa-4/traccar-web.git traccar-web
+
+🔄 ۳) واکشی آخرین نسخه از remote
+git submodule update --init --remote traccar-web
+
+پرچم --remote حیاتی است؛ بدون آن، Git همان کامیت ثبت‌شده در تاریخچه را می‌آورد، نه آخرین نسخه مخزن را.
+
+
+🔍 ۴) بررسی و تأیید
+type .gitmodules
+cd traccar-web
+git remote -v
+git log --oneline -3
+cd ..
+
+باید ببینید:
+URL در .gitmodules = https://github.com/mstfa-4/traccar-web.git
+remote در پوشه ساب‌مدل = همان آدرس
+آخرین کامیت‌ها با GitHub هماهنگ باشد
+
+💾 ۵) ثبت نهایی
+git add .gitmodules traccar-web
+git commit -m "Update traccar-web submodule to latest from mstfa-4 fork"
+
+⚠️ هشدار LF will be replaced by CRLF طبیعی است و مشکلی نیست.
+
+
+🚀 ۶) Push به مخزن اصلی
+git push origin master
+
+اگر شاخه اصلی main است: git push origin main
+
+👥 ۷) بعد از Push — برای هم‌تیمی‌ها
+git pull
+git submodule sync
+git submodule update --init --recursive
