@@ -1,5 +1,3 @@
 [submodule "traccar-web"]
 	path = traccar-web
 	url = https://github.com/mstfa-4/traccar-web.git
-	branch = master
-	ignore = all
