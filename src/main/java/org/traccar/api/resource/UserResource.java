@@ -17,6 +17,7 @@ package org.traccar.api.resource;
 
 import com.warrenstrange.googleauth.GoogleAuthenticator;
 import org.traccar.api.BaseObjectResource;
+import org.traccar.api.security.LoginProtectionService;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.LogAction;
@@ -60,6 +61,9 @@ public class UserResource extends BaseObjectResource<User> {
 
     @Inject
     private LogAction actionLogger;
+
+    @Inject
+    private LoginProtectionService loginProtectionService;
 
     @Context
     private HttpServletRequest request;
@@ -126,6 +130,8 @@ public class UserResource extends BaseObjectResource<User> {
             }
         }
 
+        entity.setBlocked(false);
+
         entity.setId(storage.addObject(entity, new Request(new Columns.Exclude("id"))));
         storage.updateObject(entity, new Request(
                 new Columns.Include("hashedPassword", "salt"),
@@ -138,6 +144,31 @@ public class UserResource extends BaseObjectResource<User> {
             actionLogger.link(request, getUserId(), User.class, getUserId(), ManagedUser.class, entity.getId());
         }
         return Response.ok(entity).build();
+    }
+
+    /**
+     * Unblocks a previously blocked account. Only administrators are allowed to unblock accounts.
+     * The failure counters are cleared, so the user can immediately try to log in again.
+     */
+    @Path("unblock/{id}")
+    @Consumes(MediaType.WILDCARD)
+    @POST
+    public Response unblock(@PathParam("id") long id) throws StorageException {
+        permissionsService.checkAdmin(getUserId());
+        User user = storage.getObject(User.class, new Request(
+                new Columns.All(), new Condition.Equals("id", id)));
+        if (user == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        if (user.getBlocked()) {
+            user.setBlocked(false);
+            storage.updateObject(user, new Request(
+                    new Columns.Include("blocked"),
+                    new Condition.Equals("id", user.getId())));
+            loginProtectionService.resetAccount(user.getEmail());
+            actionLogger.edit(request, getUserId(), user);
+        }
+        return Response.ok(user).build();
     }
 
     @Path("{id}")

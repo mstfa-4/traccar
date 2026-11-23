@@ -195,6 +195,9 @@ public class LoginService {
             throw new SecurityException("Unknown account");
         }
         user.checkDisabled();
+        if (user.getBlocked()) {
+            throw new SecurityException("Account is blocked");
+        }
     }
 
     private void checkUserCode(User user, Integer code) throws SecurityException {

@@ -1015,6 +1015,33 @@ public final class Keys {
             List.of(KeyType.CONFIG));
 
     /**
+     * Maximum number of failed login attempts before the account gets blocked and the source IP address
+     * gets temporarily blocked. The blocked account can only be unblocked by an administrator.
+     */
+    public static final ConfigKey<Integer> LOGIN_MAX_ATTEMPTS = new IntegerConfigKey(
+            "login.maxAttempts",
+            List.of(KeyType.CONFIG),
+            5);
+
+    /**
+     * Duration in minutes for which a source IP address stays blocked after exceeding the maximum number
+     * of failed login attempts. Used to mitigate brute force and denial of service attacks.
+     */
+    public static final ConfigKey<Integer> LOGIN_IP_BLOCK_MINUTES = new IntegerConfigKey(
+            "login.ipBlockMinutes",
+            List.of(KeyType.CONFIG),
+            15);
+
+    /**
+     * Maximum number of login requests per minute from a single IP address. Additional requests are
+     * rejected with 429 responses to protect the login endpoint against brute force and DDoS attacks.
+     */
+    public static final ConfigKey<Integer> LOGIN_RATE_LIMIT = new IntegerConfigKey(
+            "login.rateLimit",
+            List.of(KeyType.CONFIG),
+            30);
+
+    /**
      * Cache control header value. By default, resources are cached for one hour.
      */
     public static final ConfigKey<String> WEB_CACHE_CONTROL = new StringConfigKey(

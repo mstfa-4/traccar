@@ -157,6 +157,16 @@ public class User extends ExtendedModel implements UserRestrictions, Disableable
         this.disabled = disabled;
     }
 
+    private boolean blocked;
+
+    public boolean getBlocked() {
+        return blocked;
+    }
+
+    public void setBlocked(boolean blocked) {
+        this.blocked = blocked;
+    }
+
     private Date expirationTime;
 
     @Override

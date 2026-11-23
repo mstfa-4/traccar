@@ -181,6 +181,7 @@ public class PermissionsService {
         if (before.getAdministrator() != after.getAdministrator()
                 || before.getDeviceLimit() != after.getDeviceLimit()
                 || before.getUserLimit() != after.getUserLimit()
+                || before.getBlocked() != after.getBlocked()
                 || !Objects.equals(before.getLogin(), after.getLogin())) {
             checkAdmin(userId);
         }

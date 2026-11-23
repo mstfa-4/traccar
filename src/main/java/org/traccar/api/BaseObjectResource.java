@@ -16,6 +16,7 @@
  */
 package org.traccar.api;
 
+import org.traccar.api.security.LoginProtectionService;
 import org.traccar.api.security.ServiceAccountUser;
 import org.traccar.helper.LogAction;
 import org.traccar.model.BaseModel;
@@ -51,6 +52,9 @@ public abstract class BaseObjectResource<T extends BaseModel> extends BaseResour
 
     @Inject
     private ConnectionManager connectionManager;
+
+    @Inject
+    private LoginProtectionService loginProtectionService;
 
     @Inject
     private LogAction actionLogger;
@@ -108,6 +112,18 @@ public abstract class BaseObjectResource<T extends BaseModel> extends BaseResour
             User before = storage.getObject(User.class, new Request(
                     new Columns.All(), new Condition.Equals("id", entity.getId())));
             permissionsService.checkUserUpdate(getUserId(), before, after);
+            /*
+             * Only administrators are allowed to change the blocked flag. For all other users the
+             * previous value is preserved, so that managers can still edit a blocked account without
+             * accidentally unblocking it. When an administrator unblocks the account, the failure
+             * counters are cleared as well.
+             */
+            User currentUser = permissionsService.getUser(getUserId());
+            if (currentUser == null || !currentUser.getAdministrator()) {
+                after.setBlocked(before.getBlocked());
+            } else if (before.getBlocked() && !after.getBlocked()) {
+                loginProtectionService.resetAccount(after.getEmail());
+            }
             skipReadonly = permissionsService.getUser(getUserId())
                     .compare(after, "notificationTokens", "termsAccepted");
         }

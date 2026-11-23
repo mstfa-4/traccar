@@ -18,12 +18,14 @@ package org.traccar.api.resource;
 import com.nimbusds.oauth2.sdk.ParseException;
 import org.traccar.api.BaseResource;
 import org.traccar.api.security.CodeRequiredException;
+import org.traccar.api.security.LoginProtectionService;
 import org.traccar.api.security.LoginResult;
 import org.traccar.api.security.LoginService;
 import org.traccar.api.signature.TokenManager;
 import org.traccar.database.OpenIdProvider;
 import org.traccar.helper.LogAction;
 import org.traccar.helper.SessionHelper;
+import org.traccar.helper.WebHelper;
 import org.traccar.model.RevokedToken;
 import org.traccar.model.User;
 import org.traccar.storage.StorageException;
@@ -52,6 +54,7 @@ import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Date;
+import java.util.Locale;
 
 @Path("session")
 @Produces(MediaType.APPLICATION_JSON)
@@ -60,6 +63,9 @@ public class SessionResource extends BaseResource {
 
     @Inject
     private LoginService loginService;
+
+    @Inject
+    private LoginProtectionService loginProtectionService;
 
     @Inject
     @Nullable
@@ -110,16 +116,45 @@ public class SessionResource extends BaseResource {
         permissionsService.checkUser(getUserId(), userId);
         User user = storage.getObject(User.class, new Request(
                 new Columns.All(), new Condition.Equals("id", userId)));
+        if (user != null && user.getBlocked()) {
+            throw new SecurityException("Account is blocked");
+        }
         SessionHelper.userLogin(actionLogger, request, user, getUserPrincipal().getExpiration());
         return user;
     }
 
     @PermitAll
     @POST
-    public User add(
+    public Response add(
             @FormParam("email") String email,
             @FormParam("password") String password,
             @FormParam("code") Integer code) throws StorageException {
+
+        String remoteAddress = WebHelper.retrieveRemoteAddress(request);
+
+        if (!loginProtectionService.checkRateLimit(remoteAddress)) {
+            return Response.status(Response.Status.TOO_MANY_REQUESTS).entity("errorTooManyAttempts").build();
+        }
+
+        if (loginProtectionService.isIpBlocked(remoteAddress)) {
+            actionLogger.failedLogin(request);
+            return Response.status(Response.Status.FORBIDDEN).entity("errorIpBlocked").build();
+        }
+
+        String normalizedEmail = email != null ? email.trim().toLowerCase(Locale.ROOT) : null;
+
+        if (normalizedEmail != null && !normalizedEmail.isEmpty()) {
+            User blockedUser = storage.getObject(User.class, new Request(
+                    new Columns.All(),
+                    new Condition.Or(
+                            new Condition.Equals("email", normalizedEmail),
+                            new Condition.Equals("login", normalizedEmail))));
+            if (blockedUser != null && blockedUser.getBlocked()) {
+                actionLogger.failedLogin(request);
+                return Response.status(Response.Status.FORBIDDEN).entity("errorAccountBlocked").build();
+            }
+        }
+
         LoginResult loginResult;
         try {
             loginResult = loginService.login(email, password, code);
@@ -129,13 +164,21 @@ public class SessionResource extends BaseResource {
                     .header("WWW-Authenticate", "TOTP")
                     .build();
             throw new WebApplicationException(response);
+        } catch (SecurityException e) {
+            loginProtectionService.recordFailure(normalizedEmail, remoteAddress);
+            throw e;
         }
         if (loginResult != null) {
+            loginProtectionService.reset(normalizedEmail, remoteAddress);
             User user = loginResult.getUser();
             SessionHelper.userLogin(actionLogger, request, user, null);
-            return user;
+            return Response.ok(user).build();
         } else {
             actionLogger.failedLogin(request);
+            loginProtectionService.recordFailure(normalizedEmail, remoteAddress);
+            if (loginProtectionService.isIpBlocked(remoteAddress)) {
+                return Response.status(Response.Status.FORBIDDEN).entity("errorIpBlocked").build();
+            }
             throw new WebApplicationException(Response.status(Response.Status.UNAUTHORIZED).build());
         }
     }
