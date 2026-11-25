@@ -57,7 +57,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Comparator;
@@ -163,12 +162,12 @@ public class ServerResource extends BaseResource {
         return List.of(TimeZone.getAvailableIDs());
     }
 
-    private Path getFileRoot() {
+    private java.nio.file.Path getFileRoot() {
         return Paths.get(config.getString(Keys.WEB_OVERRIDE, config.getString(Keys.WEB_PATH))).normalize();
     }
 
-    private Path resolvePath(Path root, String relative) {
-        Path resolved = root.resolve(relative).normalize();
+    private java.nio.file.Path resolvePath(java.nio.file.Path root, String relative) {
+        java.nio.file.Path resolved = root.resolve(relative).normalize();
         return resolved.startsWith(root) ? resolved : null;
     }
 
@@ -191,20 +190,20 @@ public class ServerResource extends BaseResource {
     }
 
     /** Returns the newest regular file in the root whose name starts with the given prefix. */
-    private Path findNewestFile(Path root, String prefix) throws IOException {
+    private java.nio.file.Path findNewestFile(java.nio.file.Path root, String prefix) throws IOException {
         if (!Files.isDirectory(root)) {
             return null;
         }
-        try (Stream<Path> files = Files.list(root)) {
+        try (Stream<java.nio.file.Path> files = Files.list(root)) {
             return files.filter(Files::isRegularFile)
                     .filter((path) -> path.getFileName().toString().startsWith(prefix))
-                    .max(Comparator.comparingLong((path) -> path.toFile().lastModified()))
+                    .max(Comparator.comparingLong((java.nio.file.Path path) -> path.toFile().lastModified()))
                     .orElse(null);
         }
     }
 
     /** Streams a file with content type and cache headers. */
-    private Response serveFile(Path file) throws IOException {
+    private Response serveFile(java.nio.file.Path file) throws IOException {
         String name = file.getFileName().toString();
         String etag = '"' + Long.toHexString(file.toFile().lastModified())
                 + '-' + Long.toHexString(file.toFile().length()) + '"';
@@ -224,7 +223,7 @@ public class ServerResource extends BaseResource {
     public List<String> getFiles() throws IOException, StorageException {
         permissionsService.checkAdmin(getUserId());
         var root = getFileRoot();
-        try (var files = Files.exists(root) ? Files.list(root) : Stream.<Path>empty()) {
+        try (var files = Files.exists(root) ? Files.list(root) : Stream.<java.nio.file.Path>empty()) {
             return files.filter(Files::isRegularFile)
                     .map(path -> path.getFileName().toString()).sorted().toList();
         }
@@ -279,8 +278,8 @@ public class ServerResource extends BaseResource {
     @GET
     public Response downloadLoadingFile(@PathParam("name") String name) throws IOException, StorageException {
         var root = getFileRoot();
-        Path file = null;
-        Path exact = resolvePath(root, name);
+        java.nio.file.Path file = null;
+        java.nio.file.Path exact = resolvePath(root, name);
         if (exact != null && Files.isRegularFile(exact)) {
             file = exact;
         } else {
@@ -304,8 +303,8 @@ public class ServerResource extends BaseResource {
         return serveFile(file);
     }
 
-    private Map<String, Object> loadingFileInfo(Path root, String prefix) throws IOException {
-        Path file = findNewestFile(root, prefix);
+    private Map<String, Object> loadingFileInfo(java.nio.file.Path root, String prefix) throws IOException {
+        java.nio.file.Path file = findNewestFile(root, prefix);
         if (file == null) {
             return null;
         }
