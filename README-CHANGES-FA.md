@@ -115,3 +115,34 @@ cd traccar-server
 - بیلد کامل وب با Vite و ESLint موفق.
 - تست عملی سرور اجراشده: ۵ تلاش ناموفق از ۵ IP مختلف → مسدودی حساب و پاسخ `403 errorAccountBlocked`؛ ۵ تلاش از یک IP → مسدودی IP و پاسخ `403 errorIpBlocked`؛ بیش از ۳۰ درخواست در دقیقه → `429 errorTooManyAttempts`؛ بازگشایی توسط admin از طریق API و رابط کاربری → ورود مجدد موفق؛ حساب admin هرگز خودکار مسدود نشد.
 - تست مرورگر واقعی: نمایش پیام فارسی مسدودی در صفحه ورود، آیکن قفل و دکمه بازگشایی در صفحه کاربران، ماسک تاریخ با ارقام لاتین و فارسی، و انتخاب تاریخ از تقویم شمسی.
+
+
+---
+
+## ۴) سرویس فایل‌های «صفحه بارگذاری» صفحه ورود (Loading) — جدید
+
+### فایل جدید در سرور
+- `src/main/java/org/traccar/api/resource/LoadingResource.java`
+
+این سرویس به‌صورت خودکار از طریق package-scan (`ApiResourceConfig`) ثبت می‌شود و نیازی به تغییر `WebServer` یا `MainModule` نیست.
+
+### Endpointها
+| متد | مسیر | دسترسی | توضیح |
+| --- | --- | --- | --- |
+| `POST` | `api/server/loading/{name}` | مدیر | بارگذاری فایل GIF/MP4 (حداکثر ۲۵MB) |
+| `GET` | `api/server/loading` | مدیر | فهرست فایل‌های بارگذاری‌شده |
+| `GET` | `api/server/loading/{name}` | عمومی (`@PermitAll`) | دانلود فایل برای صفحه ورود؛ هدرهای `Cache-Control: public, max-age=31536000, immutable` + ETag |
+| `DELETE` | `api/server/loading/{name}` | مدیر | حذف فایل |
+
+### محل ذخیره فایل‌ها
+پیش‌فرض `./data/loading`؛ قابل تغییر در traccar.xml:
+```xml
+<entry key='loading.path'>./data/loading</entry>
+```
+
+### ویژگی‌های مرتبط در تنظیمات سرور
+وب‌کلاینت این چهار کلید را در attributes سرور ذخیره می‌کند (تنظیمات → سرور → کارت «صفحه بارگذاری ورود»):
+- `loading.windows.file` / `loading.mobile.file` — نام فایل فعال هر پلتفرم
+- `loading.windows.duration` / `loading.mobile.duration` — مدت پخش به میلی‌ثانیه (پیش‌فرض ۴۵۰۰)
+
+نام فایل‌ها توسط وب‌کلاینت با الگوی `loading-windows-<timestamp>.gif|mp4` ساخته می‌شود؛ چون نام هر آپلود جدید یکتاست، کش مرورگر بدون هیچ تنظیم اضافه‌ای به‌روز می‌شود و فایل‌های تکراریِ کش‌شده بلافاصله (بدون درخواست شبکه) پخش می‌شوند.
