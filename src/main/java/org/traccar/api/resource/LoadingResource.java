@@ -17,6 +17,7 @@ package org.traccar.api.resource;
 
 import org.traccar.api.BaseResource;
 import org.traccar.config.Config;
+import org.traccar.storage.StorageException;
 
 import jakarta.annotation.security.PermitAll;
 import jakarta.inject.Inject;
@@ -107,7 +108,7 @@ public class LoadingResource extends BaseResource {
     }
 
     @GET
-    public List<Map<String, Object>> get() throws IOException {
+    public List<Map<String, Object>> get() throws IOException, StorageException {
         permissionsService.checkAdmin(getUserId());
 
         List<Map<String, Object>> result = new java.util.ArrayList<>();
@@ -163,7 +164,7 @@ public class LoadingResource extends BaseResource {
     @POST
     @Path("{name}")
     @Consumes(MediaType.APPLICATION_OCTET_STREAM)
-    public Response upload(@PathParam("name") String name, InputStream input) throws IOException {
+    public Response upload(@PathParam("name") String name, InputStream input) throws IOException, StorageException {
         permissionsService.checkAdmin(getUserId());
         checkName(name);
 
@@ -198,7 +199,7 @@ public class LoadingResource extends BaseResource {
 
     @DELETE
     @Path("{name}")
-    public Response remove(@PathParam("name") String name) throws IOException {
+    public Response remove(@PathParam("name") String name) throws IOException, StorageException {
         permissionsService.checkAdmin(getUserId());
         checkName(name);
 
