@@ -58,7 +58,22 @@ import java.util.regex.Pattern;
  *
  * Endpoints:
  *   POST   /api/server/loading/{name}   upload (admin only)
- *   GET    /api/server/loading          list (admin only)
+ *   GET    /api/server/loading          list (admin only, Cache-Control: no-store)
+ *   GET    /api/server/loading/status   diagnostics (admin only): returns the
+ *                                       exact storage directory the server is
+ *                                       using, whether it exists and which
+ *                                       files are inside. This makes cases like
+ *                                       "redeploy / migration wiped data/loading"
+ *                                       or a wrong loading.path instantly visible
+ *                                       from the settings page.
+ *   GET    /api/server/loading/manifest/{name}
+ *                                       existence probe (public, @PermitAll):
+ *                                       always answers 200 JSON {name, exists}
+ *                                       with Cache-Control: no-store. The login
+ *                                       page asks it BEFORE fetching the binary,
+ *                                       so a missing file silently falls back to
+ *                                       the bundled animation instead of logging
+ *                                       a 404 and a 405 in the browser console.
  *   GET    /api/server/loading/{name}   download (public, @PermitAll) so the
  *                                       login page can display the animation
  *                                       before authentication
@@ -71,6 +86,12 @@ import java.util.regex.Pattern;
  * Downloaded files carry long-lived caching headers; every upload gets a new
  * timestamped name on the client side, so replacing a file automatically
  * busts the browser cache (requirement #4 / #5).
+ *
+ * Caching policy notes (404 fix): the file LIST and every NOT_FOUND response
+ * are sent with "Cache-Control: no-store". A cacheable list allowed CDN/browser
+ * caches to keep showing files that no longer exist on the server, and a
+ * cacheable 404 could stick on a CDN edge even after the file was restored.
+ * File downloads keep their immutable long-lived caching on purpose.
  */
 @Path("server/loading")
 @Produces(MediaType.APPLICATION_JSON)
@@ -95,20 +116,35 @@ public class LoadingResource extends BaseResource {
         return directory.getCanonicalFile();
     }
 
+    /* 404 that intermediate caches (CDN/browser) must never store */
+    private static WebApplicationException notFound() {
+        return new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                .header("Cache-Control", "no-store").build());
+    }
+
+    /* name pattern + extension validation without throwing (used by manifest) */
+    private static boolean isSafeMediaName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase();
+        return SAFE_NAME.matcher(name).matches()
+                && (lower.endsWith(".gif") || lower.endsWith(".mp4"));
+    }
+
     private void checkName(String name) throws IOException {
-        if (name == null || !SAFE_NAME.matcher(name).matches()
-                || !(name.toLowerCase().endsWith(".gif") || name.toLowerCase().endsWith(".mp4"))) {
-            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND).build());
+        if (!isSafeMediaName(name)) {
+            throw notFound();
         }
         File directory = getLoadingDirectory();
         File file = new File(directory, name).getCanonicalFile();
         if (!file.getPath().startsWith(directory.getPath() + File.separator)) {
-            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND).build());
+            throw notFound();
         }
     }
 
     @GET
-    public List<Map<String, Object>> get() throws IOException, StorageException {
+    public Response get() throws IOException, StorageException {
         permissionsService.checkAdmin(getUserId());
 
         List<Map<String, Object>> result = new java.util.ArrayList<>();
@@ -124,7 +160,61 @@ public class LoadingResource extends BaseResource {
                 result.add(item);
             }
         }
+        /*
+         * The list changes with every upload/delete, so it must never be cached
+         * by the browser or a CDN ("SMART" edge policies included); a cached
+         * list shows files that are no longer on the server and makes the 404
+         * of the preview impossible to explain for the administrator.
+         */
+        return Response.ok(result).header("Cache-Control", "no-store").build();
+    }
+
+    @GET
+    @Path("status")
+    public Map<String, Object> status() throws IOException, StorageException {
+        permissionsService.checkAdmin(getUserId());
+
+        File directory = getLoadingDirectory();
+        String[] names = directory.list((dir, name) ->
+                name.toLowerCase().endsWith(".gif") || name.toLowerCase().endsWith(".mp4"));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("path", directory.getPath());
+        result.put("exists", directory.isDirectory());
+        result.put("fileCount", names == null ? 0 : names.length);
+        result.put("files", names == null ? List.of() : Arrays.asList(names));
         return result;
+    }
+
+    /*
+     * Public existence probe for the pre-login page. The login page used to
+     * fetch the binary directly; when the configured file was missing from the
+     * storage directory (e.g. data/loading lost after a redeploy) every visit
+     * logged one 404 from the primary URL and one 405 from the legacy fallback
+     * URL in the browser console. With this manifest the client learns
+     * exists=false from a lightweight 200 JSON answer and skips the binary
+     * fetch entirely, so the console stays clean. The answer carries
+     * "Cache-Control: no-store" so neither browser caches nor CDN negative
+     * flow caches (WCDN "SMART" policy) can pin stale existence information.
+     */
+    @GET
+    @Path("manifest/{name}")
+    @PermitAll
+    public Response manifest(@PathParam("name") String name) throws IOException, StorageException {
+        boolean exists = false;
+        if (isSafeMediaName(name)) {
+            File directory = getLoadingDirectory();
+            File file = new File(directory, name).getCanonicalFile();
+            exists = file.getPath().startsWith(directory.getPath() + File.separator)
+                    && file.isFile();
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("name", name == null ? "" : name);
+        result.put("exists", exists);
+        return Response.ok(result)
+                .header("Cache-Control", "no-store")
+                .build();
     }
 
     @GET
@@ -136,7 +226,9 @@ public class LoadingResource extends BaseResource {
         File directory = getLoadingDirectory();
         File file = new File(directory, name).getCanonicalFile();
         if (!file.isFile()) {
-            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND).build());
+            /* file missing on the server (e.g. lost data/loading after redeploy);
+               keep it out of CDN/browser negative caches */
+            throw notFound();
         }
 
         String contentType = name.toLowerCase().endsWith(".mp4")
@@ -171,7 +263,7 @@ public class LoadingResource extends BaseResource {
         File directory = getLoadingDirectory();
         File file = new File(directory, name).getCanonicalFile();
         if (!file.getPath().startsWith(directory.getPath() + File.separator)) {
-            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND).build());
+            throw notFound();
         }
 
         File temporary = File.createTempFile("upload", null, directory);
@@ -206,7 +298,7 @@ public class LoadingResource extends BaseResource {
         File directory = getLoadingDirectory();
         File file = new File(directory, name).getCanonicalFile();
         if (!file.getPath().startsWith(directory.getPath() + File.separator) || !file.isFile()) {
-            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND).build());
+            throw notFound();
         }
 
         Files.delete(file.toPath());

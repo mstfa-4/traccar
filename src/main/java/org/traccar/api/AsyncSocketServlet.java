@@ -28,6 +28,8 @@ import org.traccar.storage.StorageException;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.time.Duration;
@@ -51,6 +53,28 @@ public class AsyncSocketServlet extends JettyWebSocketServlet {
         this.connectionManager = connectionManager;
         this.storage = storage;
         this.loginService = loginService;
+    }
+
+    /*
+     * JettyWebSocketServlet only serves requests carrying a proper WebSocket
+     * upgrade (HTTP/1.1 GET with Upgrade and Connection headers). When a CDN
+     * or reverse proxy in front of the server strips those headers (observed
+     * with the WCDN edge at keyhangps.cloud), the plain GET fell through to
+     * HttpServlet's default handler which answered "405 Method Not Allowed".
+     * That confusing 405 was also stored by CDN negative caches, so the socket
+     * kept failing even between deploys. Non-upgrade GETs now get a
+     * self-explanatory 426 (Upgrade Required) with "Cache-Control: no-store"
+     * so intermediate caches never remember the error and the console message
+     * points straight at the missing Upgrade headers.
+     */
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("X-WebSocket-Upgrade", "missing");
+        /* 426 Upgrade Required - jakarta.servlet has no constant for this status */
+        response.sendError(426,
+                "WebSocket upgrade required: the request reached the server without "
+                        + "Upgrade/Connection headers (enable WebSocket support in the CDN/reverse proxy)");
     }
 
     @Override
